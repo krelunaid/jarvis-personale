@@ -28,7 +28,7 @@ class Realtime {
   DateTime _lastInput = DateTime.now();
   Timer? _idle;
 
-  Future<void> start(List<ChatEntry> history) async {
+  Future<void> start() async {
     if (active || connecting) return;
     if (api.key.isEmpty) {
       throw JarvisError('Collega la tua chiave API nelle impostazioni.');
@@ -145,23 +145,6 @@ class Realtime {
       active = true;
       status = 'Ti ascolto';
       _lastInput = DateTime.now();
-      for (final m in history.skip(
-        history.length > 6 ? history.length - 6 : 0,
-      )) {
-        send({
-          'type': 'conversation.item.create',
-          'item': {
-            'type': 'message',
-            'role': m.role,
-            'content': [
-              {
-                'type': m.role == 'user' ? 'input_text' : 'output_text',
-                'text': m.text,
-              },
-            ],
-          },
-        });
-      }
       send({
         'type': 'response.create',
         'response': {

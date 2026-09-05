@@ -152,11 +152,11 @@ class AppModel extends ChangeNotifier {
   Future<void> startStop() async {
     error = '';
     if (live.active || live.connecting) {
-      _generation++;
-      await live.stop();
+      await newChat();
     } else {
       try {
-        await live.start(messages);
+        if (api.key.isNotEmpty) _clearConversation();
+        await live.start();
       } catch (e) {
         error = e.toString();
       }
@@ -206,11 +206,20 @@ class AppModel extends ChangeNotifier {
     }
   }
 
-  Future<void> newChat() async {
+  void _clearConversation() {
     _generation++;
-    await live.stop();
     messages.clear();
+    _scene = '';
+    _previous = null;
     error = '';
+    refresh();
+  }
+
+  Future<void> newChat() async {
+    _clearConversation();
+    final cameraStopped = stopCamera();
+    await live.stop();
+    await cameraStopped;
     refresh();
   }
 
@@ -444,17 +453,13 @@ class AppModel extends ChangeNotifier {
     // Cancel camera captures before awaiting disposal; never restart it silently.
     final cameraStopped = stopCamera();
     if (!keepVoice) {
-      _generation++;
+      _clearConversation();
       await live.stop();
     }
     await cameraStopped;
   }
 
-  Future<void> shutdown() async {
-    _generation++;
-    await live.stop();
-    await stopCamera();
-  }
+  Future<void> shutdown() => newChat();
 
   @override
   void dispose() {

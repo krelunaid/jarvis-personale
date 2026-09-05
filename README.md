@@ -47,3 +47,7 @@ Filtro antirumore, soglia di rilevamento della voce più alta e attesa di 750 ms
 ## Versione 1.0.2
 
 Flusso fotocamera con conversione BGRA/YUV su isolate e cambio obiettivo frontale/posteriore. Immagini in memoria, nessun takePicture o salvataggio fotografico. Frame limitati a 768 pixel; elaborazione singola senza coda e controllo del buffer di rete. Stop e cambio fotocamera invalidano le immagini precedenti. La cattura è orientata in verticale. Analisi statica e 13 test; qualità e fluidità da verificare sul telefono reale. Gli invii più frequenti aumentano i costi API.
+
+## Aggiornamento 1.0.3 (4)
+
+Ogni avvio vocale apre una conversazione nuova senza reinviare i vecchi messaggi. Termina azzera la chat e spegne la fotocamera; uscire dall’app senza una chiamata attiva azzera la chat. I ricordi salvati e le impostazioni restano. Una chiamata iOS attiva continua a schermo bloccato se abilitato. Analisi statica e 15 test superati.
