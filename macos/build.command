@@ -3,6 +3,6 @@ set -eu
 jarvis_dir="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$jarvis_dir/Jarvis.app/Contents/MacOS"
 cp "$jarvis_dir/Info.plist" "$jarvis_dir/Jarvis.app/Contents/Info.plist"
-swiftc -parse-as-library "$jarvis_dir/Source/Jarvis.swift" "$jarvis_dir/Source/Realtime.swift" "$jarvis_dir/Source/Faces.swift" -o "$jarvis_dir/Jarvis.app/Contents/MacOS/Jarvis" -framework SwiftUI -framework AVFoundation -framework AppKit -framework Security -framework Vision -framework ImageIO -target arm64-apple-macosx13.0
+swiftc -parse-as-library "$jarvis_dir/Source/Jarvis.swift" "$jarvis_dir/Source/Realtime.swift" -o "$jarvis_dir/Jarvis.app/Contents/MacOS/Jarvis" -framework SwiftUI -framework AVFoundation -framework AppKit -framework Security -target arm64-apple-macosx13.0
 codesign --force --sign - "$jarvis_dir/Jarvis.app"
 codesign --verify --deep --strict "$jarvis_dir/Jarvis.app"

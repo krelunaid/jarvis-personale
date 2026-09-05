@@ -6,8 +6,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'core.dart';
-import 'face_detect.dart';
-import 'faces.dart';
 import 'realtime.dart';
 
 class SecureLocalStore implements LocalStore {
@@ -22,37 +20,29 @@ class SecureLocalStore implements LocalStore {
 class AppModel extends ChangeNotifier {
   final LocalStore store;
   late final Memories memory;
-  late final FaceBook faces;
   late final OpenAI api;
   late final Realtime live;
-  final FaceFinder? _finder;
   final List<ChatEntry> messages = [];
   CameraController? camera;
   bool ready = false, busy = false, cameraStarting = false, watching = true;
-  String error = '',
-      visionStatus = 'Fotocamera spenta',
-      voice = 'cedar',
-      faceStatus = '';
+  String error = '', visionStatus = 'Fotocamera spenta', voice = 'cedar';
   int _generation = 0, _cameraGeneration = 0;
   Timer? _visionTimer;
   bool _observing = false, _disposed = false;
   img.Image? _previous;
   String _scene = '';
-  FaceFinder? _activeFinder;
-  AppModel({LocalStore? storage, http.Client? client, this._finder})
+  AppModel({LocalStore? storage, http.Client? client})
     : store = storage ?? SecureLocalStore() {
     memory = Memories(store);
-    faces = FaceBook(store);
     api = OpenAI(client ?? http.Client());
-    live = Realtime(api, memory, faces, refresh, upsert, (query, search) async {
+    live = Realtime(api, memory, refresh, upsert, (query, search) async {
       final token = _generation;
-      final frame = search ? null : await capture();
+      final photo = search ? null : await snapshot();
       final result = await api.respond(
         query,
         memory.context,
         history: List.of(messages),
-        photo: frame?.photo,
-        faceNote: frame?.note ?? '',
+        photo: photo,
         search: search,
       );
       if (token != _generation || !live.active) {
@@ -63,10 +53,8 @@ class AppModel extends ChangeNotifier {
         '${search ? 'Ricerca web' : 'Approfondimento • modello potente'}\n\n$result',
       );
       return result;
-    }, enrollFromCamera);
+    });
   }
-
-  FaceFinder get finder => _activeFinder ??= _finder ?? MlKitFaceFinder();
   void refresh() {
     if (!_disposed) notifyListeners();
   }
@@ -74,7 +62,6 @@ class AppModel extends ChangeNotifier {
   Future<void> load() async {
     try {
       await memory.load();
-      await faces.load();
       api.key = await store.read('openai_key') ?? '';
       final saved = await store.read('voice');
       if (voices.contains(saved)) voice = saved!;
@@ -137,11 +124,6 @@ class AppModel extends ChangeNotifier {
     refresh();
   }
 
-  Future<void> forgetFace(String name) async {
-    await faces.forget(name);
-    refresh();
-  }
-
   Future<void> importMemory(String text) async {
     await memory.importText(text);
     live.updateMemory();
@@ -166,14 +148,7 @@ class AppModel extends ChangeNotifier {
   Future<void> send(String text) async {
     if (busy || text.trim().isEmpty) return;
     if (live.active) {
-      final frame = await capture();
-      live.sayText(text, photo: frame?.photo, faceNote: frame?.note ?? '');
-      return;
-    }
-    final face = FaceBook.command(text);
-    if (face != null) {
-      add('user', text);
-      await runFace(face);
+      live.sayText(text, photo: await snapshot());
       return;
     }
     final note = Memories.command(text);
@@ -193,13 +168,11 @@ class AppModel extends ChangeNotifier {
     final history = List<ChatEntry>.of(messages);
     add('user', text);
     try {
-      final frame = await capture();
       final result = await api.respond(
         text,
         memory.context,
         history: history,
-        photo: frame?.photo,
-        faceNote: frame?.note ?? '',
+        photo: await snapshot(),
       );
       if (token == _generation) add('assistant', result);
     } catch (e) {
@@ -274,102 +247,9 @@ class AppModel extends ChangeNotifier {
     }
   }
 
-  Future<void> runFace(FaceCommand command) async {
-    try {
-      final result = switch (command.action) {
-        'enroll' => await enrollFromCamera(command.name ?? ''),
-        'forget' => await faces.forget(command.name ?? ''),
-        _ => faces.listText(),
-      };
-      add('assistant', result);
-    } catch (e) {
-      error = e.toString();
-      refresh();
-    }
-  }
-
-  Future<String> enrollFromCamera(String name) async {
-    final shot = await takeShot(force: true);
-    if (shot == null) {
-      throw JarvisError(
-        'Accendi la fotocamera e inquadra un volto per iscriverlo.',
-      );
-    }
-    try {
-      final boxes = await finder.locate(shot.path);
-      final usable = boxes.where((b) => !b.tiny).toList()
-        ..sort((a, b) => (b.width * b.height).compareTo(a.width * a.height));
-      if (usable.isEmpty) {
-        throw JarvisError(
-          'Non vedo un volto abbastanza vicino. Avvicinati e riprova.',
-        );
-      }
-      final decoded = img.decodeImage(await shot.readAsBytes());
-      if (decoded == null) {
-        throw JarvisError('Immagine non leggibile. Riprova.');
-      }
-      final result = await faces.enroll(
-        name,
-        FacePrint.fromImage(decoded, usable.first),
-      );
-      faceStatus = usable.length > 1
-          ? 'Iscritto il volto più grande come ${name.trim()}.'
-          : 'Volto iscritto.';
-      refresh();
-      return result;
-    } on JarvisError {
-      rethrow;
-    } catch (_) {
-      throw JarvisError(
-        'Riconoscimento volti non disponibile. Controlla che la fotocamera sia accesa.',
-      );
-    } finally {
-      try {
-        await File(shot.path).delete();
-      } catch (_) {}
-    }
-  }
-
-  Future<VisionFrame?> capture() async {
-    final shot = await takeShot();
-    if (shot == null) return null;
-    try {
-      final bytes = await shot.readAsBytes();
-      final decoded = img.decodeImage(bytes);
-      if (decoded == null) return null;
-      var note = '';
-      try {
-        final boxes = await finder.locate(shot.path);
-        final sight = faces.identify(decoded, boxes);
-        note = sight.note;
-        faceStatus = sight.known.isEmpty
-            ? (sight.unknown == 0
-                  ? 'Nessun volto nel riquadro'
-                  : sight.unknown == 1
-                  ? 'Persona non in rubrica volti'
-                  : '${sight.unknown} persone non in rubrica volti')
-            : 'Riconosciuto: ${sight.known.join(', ')}';
-      } catch (_) {
-        note =
-            'Riconoscimento volti locale non disponibile in questo scatto. Non inventare identità.';
-      }
-      final scaled = decoded.width > decoded.height
-          ? img.copyResize(decoded, width: 768)
-          : img.copyResize(decoded, height: 768);
-      return VisionFrame(
-        Uint8List.fromList(img.encodeJpg(scaled, quality: 72)),
-        note,
-      );
-    } finally {
-      try {
-        await File(shot.path).delete();
-      } catch (_) {}
-    }
-  }
-
-  Future<XFile?> takeShot({bool force = false}) async {
+  Future<Uint8List?> snapshot() async {
     final current = camera;
-    if ((!force && !watching) ||
+    if (!watching ||
         current == null ||
         !current.value.isInitialized ||
         current.value.isTakingPicture) {
@@ -377,16 +257,21 @@ class AppModel extends ChangeNotifier {
     }
     final token = _cameraGeneration;
     final shot = await current.takePicture();
-    if (token != _cameraGeneration) {
+    try {
+      final bytes = await shot.readAsBytes();
+      if (token != _cameraGeneration) return null;
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return null;
+      final scaled = decoded.width > decoded.height
+          ? img.copyResize(decoded, width: 768)
+          : img.copyResize(decoded, height: 768);
+      return Uint8List.fromList(img.encodeJpg(scaled, quality: 72));
+    } finally {
       try {
         await File(shot.path).delete();
       } catch (_) {}
-      return null;
     }
-    return shot;
   }
-
-  Future<Uint8List?> snapshot() async => (await capture())?.photo;
 
   DateTime _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
   Future<void> observe() async {
@@ -405,9 +290,8 @@ class AppModel extends ChangeNotifier {
     _observing = true;
     final token = _cameraGeneration;
     try {
-      final frame = await capture();
-      if (frame == null || token != _cameraGeneration) return;
-      final photo = frame.photo;
+      final photo = await snapshot();
+      if (photo == null || token != _cameraGeneration) return;
       final decoded = img.decodeImage(photo)!;
       final tiny = img.copyResize(decoded, width: 16, height: 16);
       double difference = 255;
@@ -435,13 +319,12 @@ class AppModel extends ChangeNotifier {
       visionStatus = 'Invio una nuova immagine a OpenAI';
       refresh();
       if (live.active) {
-        live.observe(photo, faceNote: frame.note);
+        live.observe(photo);
       } else {
         final response = await api.respond(
           'Descrivi in una frase i cambiamenti visibili rispetto a: $_scene. Se invariato rispondi solo INVARIATO.',
           '',
           photo: photo,
-          faceNote: frame.note,
           visionOnly: true,
         );
         if (token != _cameraGeneration) return;
@@ -480,7 +363,6 @@ class AppModel extends ChangeNotifier {
     cameraStarting = false;
     live.clearObservation();
     visionStatus = 'Fotocamera spenta';
-    faceStatus = '';
     refresh();
     await current?.dispose();
   }
@@ -495,14 +377,7 @@ class AppModel extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     unawaited(shutdown());
-    unawaited(_activeFinder?.close() ?? Future.value());
     api.client.close();
     super.dispose();
   }
-}
-
-class VisionFrame {
-  final Uint8List photo;
-  final String note;
-  const VisionFrame(this.photo, this.note);
 }

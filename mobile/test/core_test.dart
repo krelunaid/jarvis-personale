@@ -155,18 +155,7 @@ void main() {
     expect(session['audio']['output']['voice'], 'ash');
     expect(
       (session['tools'] as List).map((t) => t['name']),
-      containsAll([
-        'remember_memory',
-        'search_web',
-        'consult_expert',
-        'enroll_face',
-        'list_faces',
-        'forget_face',
-      ]),
-    );
-    expect(
-      session['instructions'],
-      contains('persona non in rubrica volti'),
+      containsAll(['remember_memory', 'search_web', 'consult_expert']),
     );
     expect(session['instructions'], contains('Nota'));
   });

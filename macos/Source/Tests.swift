@@ -10,9 +10,7 @@ import AVFoundation
         let vad = input["turn_detection"] as! [String: Any]
         assert(vad["create_response"] as? Bool == true && vad["interrupt_response"] as? Bool == true)
         let withVision = RealtimeProtocol.configuration(memory: "", vision: true)["session"] as! [String: Any]
-        let visionTools = (withVision["tools"] as! [[String: Any]]).compactMap { $0["name"] as? String }
-        assert(visionTools.contains("look_at_camera") && visionTools.contains("enroll_face") && visionTools.contains("list_faces") && visionTools.contains("forget_face"))
-        assert((withVision["instructions"] as? String)?.contains("persona non in rubrica volti") == true)
+        assert((withVision["tools"] as! [[String: Any]]).count == 4)
         let noPhoto = RealtimeProtocol.message(text: "Ciao")["item"] as! [String: Any]
         assert((noPhoto["content"] as! [[String: Any]]).count == 1)
         let photo = RealtimeProtocol.message(text: "Guarda", image: Data([1,2,3]))["item"] as! [String: Any]
@@ -63,18 +61,6 @@ import AVFoundation
         do { _ = try API.answer([:]); assertionFailure() } catch {}
         assert(MemoryCommand.note("Jarvis, ricorda che preferisco risposte brevi") == "preferisco risposte brevi")
         assert(MemoryCommand.note("Cosa ricordi di me?") == nil)
-        if case .enroll(let name) = FaceCommand.parse("Jarvis, ricorda questo volto come Marco") { assert(name == "Marco") } else { assertionFailure() }
-        if case .list = FaceCommand.parse("Elenca i volti") {} else { assertionFailure() }
-        if case .forget(let name) = FaceCommand.parse("Dimentica il volto di Marco") { assert(name == "Marco") } else { assertionFailure() }
-        assert(FaceCommand.parse("Ricorda che preferisco esempi") == nil)
-        let marco = FacePrint.fromLuminance((0..<1024).map { Double(($0 * 13) % 17) })
-        let marcoAgain = FacePrint.fromLuminance((0..<1024).map { Double(($0 * 13) % 17) + 0.01 })
-        let stranger = FacePrint.fromLuminance((0..<1024).map { Double(($0 * 41) % 23) })
-        let people = [FacePerson(id: "1", name: "Marco", prints: [marco])]
-        assert(FaceBook.match(marcoAgain, people: people) == "Marco")
-        assert(FaceBook.match(stranger, people: people) == nil)
-        assert(FaceBook.identify(known: [], unknown: 1).contains("non in rubrica volti"))
-        assert(!FaceBook.identify(known: [], unknown: 1).lowercased().contains("marco"))
         var savedNote = ""
         let memorizer = LiveConversation(); memorizer.testBegin(); memorizer.rememberNote = { savedNote = $0; return "Salvato" }
         memorizer.testReceive(["type": "response.done", "response": ["id": "mem", "status": "completed", "output": [["type": "function_call", "name": "remember_memory", "call_id": "mem1", "arguments": "{\"note\":\"Risposte brevi\"}"]]]])

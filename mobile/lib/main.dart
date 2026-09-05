@@ -335,17 +335,6 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
                 ),
               ),
               if (model.camera != null)
-                TextButton.icon(
-                  onPressed: () => enrollFace(),
-                  icon: const Icon(Icons.face_retouching_natural),
-                  label: const Text('Ricorda questo volto'),
-                ),
-              if (model.faceStatus.isNotEmpty)
-                Text(
-                  model.faceStatus,
-                  style: const TextStyle(color: cyan, fontSize: 13),
-                ),
-              if (model.camera != null)
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   title: const Text(
@@ -370,7 +359,7 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
       ),
       const SizedBox(height: 8),
       const Text(
-        '“Ricorda che preferisco risposte brevi”\n“Ricorda questo volto come Marco”\n“Chi vedi?”\n“Cerca su internet…”',
+        '“Ricorda che preferisco risposte brevi”\n“Cerca su internet…”\n“Usa il massimo e aiutami a…”',
         style: TextStyle(height: 1.7, color: Color(0xffb7c7d2)),
       ),
     ],
@@ -651,62 +640,6 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
     if (value != null) await run(() => model.importMemory(value));
   }
 
-  Future<void> enrollFace() async {
-    if (model.camera == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Accendi la fotocamera per iscrivere un volto.'),
-        ),
-      );
-      return;
-    }
-    final controller = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ricorda questo volto'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Il volto inquadrato resta sul telefono. JARVIS lo nominerà solo se lo riconosce; non inventa identità per altri.',
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              maxLength: 40,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                hintText: 'Nome, ad esempio Marco',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annulla'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Iscrivi'),
-          ),
-        ],
-      ),
-    );
-    if (name != null && name.trim().isNotEmpty) {
-      await run(() async {
-        final result = await model.enrollFromCamera(name);
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(result)));
-        }
-      });
-    }
-  }
-
   Future<void> settings() async {
     final key = TextEditingController();
     var selected = model.voice;
@@ -769,42 +702,6 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
                       )
                       .toList(),
                 ),
-                const SizedBox(height: 18),
-                const Text(
-                  'Rubrica volti',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'I modelli dei volti restano sul telefono, cifrati come le note. Non vengono inviati a OpenAI: il modello riceve solo i nomi riconosciuti in quella foto. I volti sconosciuti restano «persona non in rubrica volti».',
-                  style: TextStyle(fontSize: 12, color: Color(0xff98aebe), height: 1.45),
-                ),
-                if (model.faces.people.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 10),
-                    child: Text(
-                      'Nessun volto iscritto. Accendi la fotocamera e usa «Ricorda questo volto».',
-                      style: TextStyle(fontSize: 13, color: Color(0xff98aebe)),
-                    ),
-                  )
-                else
-                  for (final person in List.of(model.faces.people))
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(person.name),
-                      subtitle: const Text(
-                        'Salvato sul telefono',
-                        style: TextStyle(fontSize: 11, color: Color(0xff98aebe)),
-                      ),
-                      trailing: IconButton(
-                        tooltip: 'Dimentica ${person.name}',
-                        icon: const Icon(Icons.delete_outline, size: 20),
-                        onPressed: () async {
-                          await run(() => model.forgetFace(person.name));
-                          update(() {});
-                        },
-                      ),
-                    ),
                 const SizedBox(height: 12),
                 const Text(
                   'Risparmio automatico attivo. Usa il massimo per un approfondimento. Webcam, chat e ricerche hanno costi aggiuntivi. Microfono e fotocamera si fermano quando lasci l’app.',
