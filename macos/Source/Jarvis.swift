@@ -96,12 +96,33 @@ enum API {
         return try parse(data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 }
+enum VisionPace {
+    static let captureSeconds: TimeInterval = 0.2
+    static let firstLookNs: UInt64 = 200_000_000
+    static let liveLookNs: UInt64 = 250_000_000
+    static let chatLookNs: UInt64 = 400_000_000
+    static let liveStableSeconds: TimeInterval = 2
+    static let chatStableSeconds: TimeInterval = 30
+    static let changeThreshold = 7.0
+    static func lookDelayNs(first: Bool, live: Bool) -> UInt64 {
+        if first { return firstLookNs }
+        return live ? liveLookNs : chatLookNs
+    }
+    static func sceneMoved(previous: [Double]?, current: [Double], lastSent: Date, live: Bool, now: Date = Date()) -> Bool {
+        if current.isEmpty { return true }
+        guard let previous, previous.count == current.count else { return true }
+        let diff = zip(previous, current).map { abs($0 - $1) }.reduce(0, +) / Double(current.count)
+        if diff >= changeThreshold { return true }
+        return now.timeIntervalSince(lastSent) >= (live ? liveStableSeconds : chatStableSeconds)
+    }
+}
 // Session changes run on queue; frame access is protected by lock.
 final class Camera: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     let session = AVCaptureSession()
     let queue = DispatchQueue(label: "jarvis.camera")
     private let lock = NSLock()
     private var frame: Data?
+    private var hint: [Double]?
     private let context = CIContext()
     private var lastFrame = Date.distantPast
     func start() async throws {
@@ -125,15 +146,28 @@ final class Camera: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBu
             }
         }
     }
-    func stop() { queue.async { self.session.stopRunning(); self.lock.lock(); self.frame = nil; self.lock.unlock() } }
+    func stop() { queue.async { self.session.stopRunning(); self.lock.lock(); self.frame = nil; self.hint = nil; self.lock.unlock() } }
     func snapshot() -> Data? { lock.lock(); defer { lock.unlock() }; return frame }
+    func sceneHint() -> [Double]? { lock.lock(); defer { lock.unlock() }; return hint }
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard Date().timeIntervalSince(lastFrame) > 0.4, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard Date().timeIntervalSince(lastFrame) > VisionPace.captureSeconds, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastFrame = Date(); let original = CIImage(cvPixelBuffer: buffer)
         let scale = min(1, 768 / max(original.extent.width, original.extent.height))
         let image = original.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let data = context.jpegRepresentation(of: image, colorSpace: CGColorSpaceCreateDeviceRGB(), options: [:])
-        lock.lock(); frame = data; lock.unlock()
+        let hint = Self.luminanceHint(image, context: context)
+        lock.lock(); frame = data; self.hint = hint; lock.unlock()
+    }
+    private static func luminanceHint(_ image: CIImage, context: CIContext) -> [Double]? {
+        let extent = image.extent
+        guard extent.width > 1, extent.height > 1 else { return nil }
+        let small = image.transformed(by: CGAffineTransform(scaleX: 16 / extent.width, y: 16 / extent.height))
+        let bounds = CGRect(x: small.extent.minX, y: small.extent.minY, width: 16, height: 16)
+        var pixels = [UInt8](repeating: 0, count: 16 * 16 * 4)
+        context.render(small, toBitmap: &pixels, rowBytes: 64, bounds: bounds, format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        return stride(from: 0, to: pixels.count, by: 4).map { i in
+            0.299 * Double(pixels[i]) + 0.587 * Double(pixels[i + 1]) + 0.114 * Double(pixels[i + 2])
+        }
     }
 }
 final class PreviewView: NSView {
@@ -253,12 +287,20 @@ struct CameraPreview: NSViewRepresentable {
         guard cameraOn, visionByVoice else { visionStatus = cameraOn ? "Solo anteprima locale" : "Videocamera spenta"; return }
         visionTask = Task {
             var previous = ""
+            var previousHint: [Double]?
+            var lastSent = Date.distantPast
             var first = true
             while !Task.isCancelled && cameraOn && visionByVoice {
                 do {
-                    try await Task.sleep(nanoseconds: first ? 1_000_000_000 : (live.active ? 5_000_000_000 : 15_000_000_000))
+                    try await Task.sleep(nanoseconds: VisionPace.lookDelayNs(first: first, live: live.active))
                     guard !Task.isCancelled, cameraOn, visionByVoice else { return }
                     guard connected, !busy, !live.connecting, let photo = camera.snapshot() else { continue }
+                    let hint = camera.sceneHint() ?? []
+                    if !VisionPace.sceneMoved(previous: previousHint, current: hint, lastSent: lastSent, live: live.active) {
+                        first = false
+                        visionStatus = "Vista attiva • scena stabile"
+                        continue
+                    }
                     visionStatus = "JARVIS sta guardando • invio a OpenAI"
                     if live.active {
                         live.observe(photo)
@@ -275,6 +317,8 @@ struct CameraPreview: NSViewRepresentable {
                             messages.append(Message(role: "assistant", text: "Vista • " + Date().formatted(date: .omitted, time: .shortened) + "\n" + answer))
                         }
                     }
+                    if !hint.isEmpty { previousHint = hint }
+                    lastSent = Date()
                     first = false
                     visionStatus = "Vista automatica attiva • " + Date().formatted(date: .omitted, time: .shortened)
                 } catch {
@@ -410,7 +454,7 @@ struct ContentView: View {
                     Button(model.cameraOn ? "Spegni videocamera" : "Accendi videocamera") { model.toggleCamera() }.disabled(model.cameraStarting)
                     Toggle("JARVIS guarda automaticamente", isOn: $model.visionByVoice).font(.system(size: 13)).toggleStyle(.switch)
                     Text(model.visionStatus).font(.caption).foregroundStyle(.secondary)
-                    Text("Con vista automatica attiva, immagini inviate a OpenAI: ogni 5 s in conversazione, ogni 15 s in chat (più il tempo di analisi). Usa credito API.").font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text("Con vista automatica attiva, fotogrammi JPEG a OpenAI: circa 4 al secondo in conversazione e 2–3 in chat se la scena cambia. Scene ferme: niente invii inutili (INVARIATO). Non è un video continuo. Usa credito API.").font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 Button { model.voicePicker = true } label: { Label("Scegli la voce AI", systemImage: "waveform") }.disabled(model.busy || model.recording || model.live.active || model.live.connecting)

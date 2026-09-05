@@ -24,4 +24,15 @@ void main() {
     expect(model.live.active, false);
     expect(model.camera, isNull);
   });
+  testWidgets(
+    'Voice page describes denser on-demand frames, not continuous video',
+    (tester) async {
+    final model = AppModel(storage: FakeStore());
+    await tester.pumpWidget(MaterialApp(home: JarvisHome(model: model)));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('circa 4 fotogrammi al secondo'), findsOneWidget);
+    expect(find.textContaining('Non è un video continuo'), findsOneWidget);
+    expect(find.text('Fotocamera spenta'), findsOneWidget);
+    expect(model.camera, isNull);
+  });
 }

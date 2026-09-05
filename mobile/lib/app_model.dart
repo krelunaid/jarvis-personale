@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'core.dart';
 import 'realtime.dart';
+import 'vision.dart';
 
 class SecureLocalStore implements LocalStore {
   final FlutterSecureStorage storage = const FlutterSecureStorage();
@@ -295,7 +296,7 @@ class AppModel extends ChangeNotifier {
   void _acceptFrame(CameraImage frame, int token, int rotation) {
     if (token != _cameraGeneration || !watching || _convertingFrame) return;
     final now = DateTime.now();
-    if (now.difference(_lastFrameAttempt) < const Duration(seconds: 1)) return;
+    if (now.difference(_lastFrameAttempt) < VisionPace.acceptGap) return;
     _lastFrameAttempt = now;
     _convertingFrame = true;
     final packet = VideoFrame(
@@ -336,7 +337,7 @@ class AppModel extends ChangeNotifier {
     if (!watching ||
         camera == null ||
         _frameTime == null ||
-        DateTime.now().difference(_frameTime!) > const Duration(seconds: 3)) {
+        DateTime.now().difference(_frameTime!) > VisionPace.snapshotFreshness) {
       return null;
     }
     return _latestFrame;
@@ -352,9 +353,12 @@ class AppModel extends ChangeNotifier {
         live.connecting) {
       return;
     }
-    if (!live.active &&
-        DateTime.now().difference(_lastAnalysis) <
-            const Duration(seconds: 15)) {
+    final now = DateTime.now();
+    if (!VisionPace.readyToSend(
+      live: live.active,
+      last: _lastAnalysis,
+      now: now,
+    )) {
       return;
     }
     _observing = true;
@@ -364,24 +368,14 @@ class AppModel extends ChangeNotifier {
       if (photo == null || token != _cameraGeneration) return;
       final decoded = img.decodeImage(photo)!;
       final tiny = img.copyResize(decoded, width: 16, height: 16);
-      double difference = 255;
-      if (_previous != null) {
-        double sum = 0;
-        for (var y = 0; y < 16; y++) {
-          for (var x = 0; x < 16; x++) {
-            sum +=
-                (tiny.getPixel(x, y).luminance -
-                        _previous!.getPixel(x, y).luminance)
-                    .abs();
-          }
-        }
-        difference = sum / 256;
-      }
+      final difference = sceneDifference(_previous, tiny);
       // Periodic refresh avoids indefinitely stale context after small movements.
-      if (!live.active &&
-          difference < 7 &&
-          DateTime.now().difference(_lastAnalysis) <
-              const Duration(seconds: 30)) {
+      if (!VisionPace.sceneMoved(
+        difference,
+        live: live.active,
+        last: _lastAnalysis,
+        now: now,
+      )) {
         visionStatus = 'Vista attiva • scena stabile';
         return;
       }

@@ -61,6 +61,24 @@ import AVFoundation
         do { _ = try API.answer([:]); assertionFailure() } catch {}
         assert(MemoryCommand.note("Jarvis, ricorda che preferisco risposte brevi") == "preferisco risposte brevi")
         assert(MemoryCommand.note("Cosa ricordi di me?") == nil)
+        assert(VisionPace.firstLookNs == 200_000_000)
+        assert(VisionPace.liveLookNs == 250_000_000)
+        assert(VisionPace.chatLookNs == 400_000_000)
+        assert(VisionPace.captureSeconds == 0.2)
+        assert(VisionPace.lookDelayNs(first: true, live: true) == VisionPace.firstLookNs)
+        assert(VisionPace.lookDelayNs(first: false, live: true) == VisionPace.liveLookNs)
+        assert(VisionPace.lookDelayNs(first: false, live: false) == VisionPace.chatLookNs)
+        assert((1_000_000_000 / VisionPace.liveLookNs) >= 2 && (1_000_000_000 / VisionPace.liveLookNs) <= 5)
+        assert((1_000_000_000 / VisionPace.chatLookNs) >= 2 && (1_000_000_000 / VisionPace.chatLookNs) <= 5)
+        let now = Date()
+        let still = [Double](repeating: 40, count: 256)
+        let moved = [Double](repeating: 80, count: 256)
+        assert(VisionPace.sceneMoved(previous: nil, current: still, lastSent: now, live: true, now: now))
+        assert(!VisionPace.sceneMoved(previous: still, current: still, lastSent: now, live: true, now: now))
+        assert(VisionPace.sceneMoved(previous: still, current: moved, lastSent: now, live: true, now: now))
+        assert(VisionPace.sceneMoved(previous: still, current: still, lastSent: now.addingTimeInterval(-3), live: true, now: now))
+        assert(!VisionPace.sceneMoved(previous: still, current: still, lastSent: now.addingTimeInterval(-8), live: false, now: now))
+        assert(VisionPace.sceneMoved(previous: still, current: still, lastSent: now.addingTimeInterval(-31), live: false, now: now))
         var savedNote = ""
         let memorizer = LiveConversation(); memorizer.testBegin(); memorizer.rememberNote = { savedNote = $0; return "Salvato" }
         memorizer.testReceive(["type": "response.done", "response": ["id": "mem", "status": "completed", "output": [["type": "function_call", "name": "remember_memory", "call_id": "mem1", "arguments": "{\"note\":\"Risposte brevi\"}"]]]])
@@ -96,6 +114,6 @@ import AVFoundation
         assert(consultations == 1)
         assert(RealtimeProtocol.model == "gpt-realtime-2.1-mini")
         watcher.stop()
-        print("PASS: web tool, citations, duplicate search, automatic vision and image replacement; PCM conversion; automatic turns; camera opt-in, deduplication and rate limit; mute; transcription; interruption; authentication failure cleanup; bounded history and API errors.")
+        print("PASS: web tool, citations, duplicate search, automatic vision and image replacement; denser on-demand vision cadence; PCM conversion; automatic turns; camera opt-in, deduplication and rate limit; mute; transcription; interruption; authentication failure cleanup; bounded history and API errors.")
     }
 }
