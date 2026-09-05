@@ -51,3 +51,7 @@ Flusso fotocamera con conversione BGRA/YUV su isolate e cambio obiettivo frontal
 ## Aggiornamento 1.0.3 (4)
 
 Ogni avvio vocale apre una conversazione nuova senza reinviare i vecchi messaggi. Termina azzera la chat e spegne la fotocamera; uscire dall’app senza una chiamata attiva azzera la chat. I ricordi salvati e le impostazioni restano. Una chiamata iOS attiva continua a schermo bloccato se abilitato. Analisi statica e 15 test superati.
+
+## Aggiornamento 1.0.4 (5)
+
+Soglia di rilevamento voce aumentata da 0.7 a 0.8 per ridurre le interruzioni causate da suoni deboli. Interruzione tramite parlato ancora abilitata; voce, modello e attesa a fine frase invariati. Da verificare su telefono reale con tono normale e rumori ambientali.

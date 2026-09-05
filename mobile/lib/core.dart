@@ -133,7 +133,7 @@ Map<String, dynamic> liveSession(String memory, String voice) => {
       'transcription': {'model': 'gpt-4o-mini-transcribe', 'language': 'it'},
       'turn_detection': {
         'type': 'server_vad',
-        'threshold': 0.7,
+        'threshold': 0.8,
         'prefix_padding_ms': 300,
         'silence_duration_ms': 750,
         'create_response': true,
