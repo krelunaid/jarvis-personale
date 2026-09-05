@@ -6,7 +6,6 @@ import 'video_frame.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
-import 'package:image/image.dart' as img;
 import 'core.dart';
 import 'realtime.dart';
 import 'vision.dart';
@@ -33,11 +32,14 @@ class AppModel extends ChangeNotifier {
   CameraLensDirection lensDirection = CameraLensDirection.front;
   int cameraCount = 0;
   Uint8List? _latestFrame;
+  List<double>? _latestHint;
+  List<double>? _previousHint;
   DateTime? _frameTime;
   bool _convertingFrame = false;
   DateTime _lastFrameAttempt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _observing = false, _disposed = false;
-  img.Image? _previous;
+  VideoFrame? _pendingPacket;
+  int _pendingToken = 0;
   String _scene = '';
   bool continueWhenLocked = true;
   bool get supportsBackgroundVoice =>
@@ -211,7 +213,7 @@ class AppModel extends ChangeNotifier {
     _generation++;
     messages.clear();
     _scene = '';
-    _previous = null;
+    _previousHint = null;
     error = '';
     refresh();
   }
@@ -243,7 +245,7 @@ class AppModel extends ChangeNotifier {
           choices.first;
       next = CameraController(
         selected,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: Platform.isIOS
             ? ImageFormatGroup.bgra8888
@@ -261,7 +263,8 @@ class AppModel extends ChangeNotifier {
       }
       camera = next;
       lensDirection = selected.lensDirection;
-      _previous = null;
+      _previousHint = null;
+      _latestHint = null;
       _scene = '';
       visionStatus = 'Avvio flusso fotocamera…';
       final rotation = Platform.isIOS ? 0 : selected.sensorOrientation;
@@ -293,13 +296,8 @@ class AppModel extends ChangeNotifier {
     await toggleCamera();
   }
 
-  void _acceptFrame(CameraImage frame, int token, int rotation) {
-    if (token != _cameraGeneration || !watching || _convertingFrame) return;
-    final now = DateTime.now();
-    if (now.difference(_lastFrameAttempt) < VisionPace.acceptGap) return;
-    _lastFrameAttempt = now;
-    _convertingFrame = true;
-    final packet = VideoFrame(
+  VideoFrame _copyFrame(CameraImage frame, int rotation) {
+    return VideoFrame(
       frame.width,
       frame.height,
       frame.format.group == ImageFormatGroup.bgra8888,
@@ -314,13 +312,33 @@ class AppModel extends ChangeNotifier {
           .toList(),
       rotation: rotation,
     );
+  }
+
+  void _acceptFrame(CameraImage frame, int token, int rotation) {
+    if (token != _cameraGeneration || !watching) return;
+    final now = DateTime.now();
+    if (now.difference(_lastFrameAttempt) < VisionPace.acceptGap) return;
+    _lastFrameAttempt = now;
+    final packet = _copyFrame(frame, rotation);
+    if (_convertingFrame) {
+      _pendingPacket = packet;
+      _pendingToken = token;
+      return;
+    }
+    _encodeFrame(packet, token);
+  }
+
+  void _encodeFrame(VideoFrame packet, int token) {
+    _convertingFrame = true;
     unawaited(
-      compute(encodeVideoFrame, packet)
-          .then((jpeg) async {
+      compute(encodeVisionFrame, packet)
+          .then((encoded) {
             if (token != _cameraGeneration || !watching) return;
-            _latestFrame = jpeg;
-            _frameTime = now;
-            await observe();
+            _latestFrame = encoded.jpeg;
+            _latestHint = encoded.hint;
+            _frameTime = DateTime.now();
+            live.latestPhoto = encoded.jpeg;
+            unawaited(observe());
           })
           .catchError((Object _) {
             if (token == _cameraGeneration) {
@@ -329,7 +347,17 @@ class AppModel extends ChangeNotifier {
               refresh();
             }
           })
-          .whenComplete(() => _convertingFrame = false),
+          .whenComplete(() {
+            _convertingFrame = false;
+            final pending = _pendingPacket;
+            final pendingToken = _pendingToken;
+            _pendingPacket = null;
+            if (pending != null &&
+                pendingToken == _cameraGeneration &&
+                watching) {
+              _encodeFrame(pending, pendingToken);
+            }
+          }),
     );
   }
 
@@ -365,13 +393,13 @@ class AppModel extends ChangeNotifier {
     final token = _cameraGeneration;
     try {
       final photo = await snapshot();
-      if (photo == null || token != _cameraGeneration) return;
-      final decoded = img.decodeImage(photo)!;
-      final tiny = img.copyResize(decoded, width: 16, height: 16);
-      final difference = sceneDifference(_previous, tiny);
-      // Periodic refresh avoids indefinitely stale context after small movements.
+      final hint = _latestHint;
+      if (photo == null || hint == null || token != _cameraGeneration) return;
+      final delta = compareHints(_previousHint, hint);
+      // Refresh at least twice a second in live mode so a "still" scene cannot freeze.
       if (!VisionPace.sceneMoved(
-        difference,
+        delta.mean,
+        peak: delta.peak,
         live: live.active,
         last: _lastAnalysis,
         now: now,
@@ -379,12 +407,11 @@ class AppModel extends ChangeNotifier {
         visionStatus = 'Vista attiva • scena stabile';
         return;
       }
-      _previous = tiny;
-      _lastAnalysis = DateTime.now();
       visionStatus = 'Invio una nuova immagine a OpenAI';
       refresh();
+      var sent = false;
       if (live.active) {
-        if (!await live.observe(photo)) return;
+        sent = await live.observe(photo);
       } else {
         final response = await api.respond(
           'Descrivi in una frase i cambiamenti visibili rispetto a: $_scene. Se invariato rispondi solo INVARIATO.',
@@ -393,12 +420,15 @@ class AppModel extends ChangeNotifier {
           visionOnly: true,
         );
         if (token != _cameraGeneration) return;
+        sent = true;
         if (response.trim() != 'INVARIATO') {
           _scene = response;
           add('assistant', 'Vista automatica\n$response');
         }
       }
-      if (token != _cameraGeneration || !watching) return;
+      if (!sent || token != _cameraGeneration || !watching) return;
+      _previousHint = hint;
+      _lastAnalysis = DateTime.now();
       visionStatus =
           'Vista aggiornata • ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}';
     } catch (_) {
@@ -414,8 +444,11 @@ class AppModel extends ChangeNotifier {
   void setWatching(bool value) {
     watching = value;
     if (!value) live.clearObservation();
-    _previous = null;
+    _previousHint = null;
+    _latestHint = null;
     _latestFrame = null;
+    live.latestPhoto = null;
+    _pendingPacket = null;
     _frameTime = null;
     _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
     visionStatus = value ? 'Vista automatica pronta' : 'Solo anteprima locale';
@@ -425,6 +458,10 @@ class AppModel extends ChangeNotifier {
   Future<void> stopCamera() async {
     _cameraGeneration++;
     _latestFrame = null;
+    _latestHint = null;
+    _previousHint = null;
+    live.latestPhoto = null;
+    _pendingPacket = null;
     _frameTime = null;
     _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
     final current = camera;

@@ -1,7 +1,7 @@
 name: jarvis_mobile
 description: Assistente personale con voce, vista e memoria locale.
 publish_to: none
-version: 1.0.6+7
+version: 1.0.7+8
 environment:
   sdk: '>=3.12.0 <4.0.0'
 dependencies:

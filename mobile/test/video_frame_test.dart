@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:jarvis_mobile/video_frame.dart';
+import 'package:jarvis_mobile/vision.dart';
 
 void main() {
   test('BGRA preserves colors with padded rows', () {
@@ -73,6 +74,42 @@ void main() {
     expect(image.height, 4);
     expect(image.getPixel(0, 0).r, closeTo(128, 4));
     expect(image.getPixel(0, 0).b, closeTo(128, 4));
+  });
+  test('Vision encode returns a 16x16 luminance hint', () {
+    final encoded = encodeVisionFrame(
+      VideoFrame(
+        2,
+        2,
+        true,
+        [
+          Uint8List.fromList([
+            0,
+            0,
+            255,
+            255,
+            0,
+            0,
+            255,
+            255,
+            0,
+            0,
+            255,
+            255,
+            0,
+            0,
+            255,
+            255,
+          ]),
+        ],
+        [8],
+        [4],
+      ),
+    );
+    expect(encoded.hint, hasLength(256));
+    expect(encoded.jpeg, isNotEmpty);
+    expect(compareHints(encoded.hint, encoded.hint).mean, 0);
+    expect(VisionPace.jpegQuality, 82);
+    expect(VisionPace.maxEdge, 768);
   });
   test('Malformed frames fail without emitting images', () {
     expect(

@@ -27,22 +27,23 @@ void main() {
   testWidgets(
     'Voice page describes denser on-demand frames, not continuous video',
     (tester) async {
-    final model = AppModel(storage: FakeStore());
-    await tester.pumpWidget(MaterialApp(home: JarvisHome(model: model)));
-    await tester.pumpAndSettle();
-    final copy = find.textContaining(
-      'circa 4 fotogrammi al secondo',
-      skipOffstage: false,
-    );
-    expect(copy, findsOneWidget);
-    expect(
-      tester.widget<Text>(copy).data,
-      contains('Non è un video continuo'),
-    );
-    expect(
-      find.text('Fotocamera spenta', skipOffstage: false),
-      findsOneWidget,
-    );
-    expect(model.camera, isNull);
-  });
+      final model = AppModel(storage: FakeStore());
+      await tester.pumpWidget(MaterialApp(home: JarvisHome(model: model)));
+      await tester.pumpAndSettle();
+      final copy = find.textContaining(
+        'circa 5 fotogrammi al secondo',
+        skipOffstage: false,
+      );
+      expect(copy, findsOneWidget);
+      expect(
+        tester.widget<Text>(copy).data,
+        contains('Non è un video continuo'),
+      );
+      expect(
+        find.text('Fotocamera spenta', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(model.camera, isNull);
+    },
+  );
 }
