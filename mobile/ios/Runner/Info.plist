@@ -27,7 +27,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>JARVIS usa la fotocamera quando la accendi. Con vista automatica attiva, le immagini vengono inviate a OpenAI.</string>
+	<string>JARVIS usa la fotocamera quando la accendi. Con vista automatica attiva, le immagini vengono inviate a OpenAI. I volti iscritti restano sul telefono.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>JARVIS usa il microfono quando avvii la conversazione. La voce viene inviata a OpenAI.</string>
 	<key>UIApplicationSceneManifest</key>

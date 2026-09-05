@@ -4,14 +4,25 @@ import 'dart:typed_data';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
 import 'core.dart';
+import 'faces.dart';
 
 class Realtime {
   final OpenAI api;
   final Memories memory;
+  final FaceBook faces;
   final void Function() changed;
   final void Function(String, String, String) transcript;
   final Future<String> Function(String, bool) consult;
-  Realtime(this.api, this.memory, this.changed, this.transcript, this.consult);
+  final Future<String> Function(String) enrollFace;
+  Realtime(
+    this.api,
+    this.memory,
+    this.faces,
+    this.changed,
+    this.transcript,
+    this.consult,
+    this.enrollFace,
+  );
   RTCPeerConnection? _peer;
   RTCDataChannel? _channel;
   MediaStream? _mic;
@@ -211,7 +222,7 @@ class Realtime {
     changed();
   }
 
-  void sayText(String text, {Uint8List? photo}) {
+  void sayText(String text, {Uint8List? photo, String faceNote = ''}) {
     if (!active) return;
     interrupt();
     _expertCalls = 0;
@@ -223,6 +234,7 @@ class Realtime {
         'role': 'user',
         'content': [
           {'type': 'input_text', 'text': text},
+          if (faceNote.isNotEmpty) {'type': 'input_text', 'text': faceNote},
           if (photo != null)
             {
               'type': 'input_image',
@@ -235,7 +247,7 @@ class Realtime {
     send({'type': 'response.create'});
   }
 
-  void observe(Uint8List image) {
+  void observe(Uint8List image, {String faceNote = ''}) {
     if (!active) return;
     clearObservation();
     final id = 'v${DateTime.now().microsecondsSinceEpoch}';
@@ -250,7 +262,7 @@ class Realtime {
           {
             'type': 'input_text',
             'text':
-                'Foto automatica aggiornata adesso. Usala per le prossime domande, senza commentarla spontaneamente.',
+                'Foto automatica aggiornata adesso. Usala per le prossime domande, senza commentarla spontaneamente.${faceNote.isEmpty ? '' : ' $faceNote'}',
           },
           {
             'type': 'input_image',
@@ -345,12 +357,20 @@ class Realtime {
       if (id == null || !_handled.add(id)) continue;
       String result;
       try {
-        final args =
-            jsonDecode(call['arguments'] as String) as Map<String, dynamic>;
+        final rawArgs = call['arguments'];
+        final args = rawArgs is String && rawArgs.trim().isNotEmpty
+            ? jsonDecode(rawArgs) as Map<String, dynamic>
+            : <String, dynamic>{};
         switch (call['name']) {
           case 'remember_memory':
             result = await memory.remember(args['note'] as String);
             updateMemory();
+          case 'enroll_face':
+            result = await enrollFace(args['name'] as String? ?? '');
+          case 'list_faces':
+            result = faces.listText();
+          case 'forget_face':
+            result = await faces.forget(args['name'] as String? ?? '');
           case 'search_web':
           case 'consult_expert':
             final query = args['query'] as String;
