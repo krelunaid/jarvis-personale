@@ -36,7 +36,7 @@ Il comando AirDrop della versione Mac esporta esplicitamente un file temporaneo 
 
 ## Stato delle verifiche
 
-Build macOS e iOS compilate; tredici test Flutter e analisi statica superati durante lo sviluppo. Chat API provata nel simulatore iOS. Una build iOS è stata distribuita con TestFlight. La build Android non è ancora verificata. Microfono, audio e fotocamera richiedono prove sul dispositivo reale.
+Build macOS e iOS compilate; 26 test Flutter e analisi statica superati durante lo sviluppo. Chat API provata nel simulatore iOS. Una build iOS è stata distribuita con TestFlight. La build Android non è ancora verificata. Microfono, audio e fotocamera richiedono prove sul dispositivo reale.
 
 Le API e i modelli configurati nel codice richiedono disponibilità sul proprio account. Progetto personale indipendente, non affiliato a Marvel o ai produttori di Iron Man. Le dipendenze mantengono le rispettive licenze. Non è stata assegnata una licenza generale al codice del progetto.
 
@@ -74,4 +74,4 @@ Vista on-demand più densa su Mac e iPhone, solo mentre fotocamera e vista autom
 | Mac observe live | 5 s | 250 ms (~4 Hz) |
 | Mac observe chat | 15 s | 400 ms se la scena cambia; 30 s se stabile |
 
-INVARIATO e il confronto locale restano. Non è un video continuo stile ChatGPT. Stop/Termina spegne la fotocamera. Da verificare su Mac e iPhone reali.
+INVARIATO e il confronto locale restano. Non è un video continuo stile ChatGPT. Stop/Termina spegne la fotocamera. Analisi statica e 26 test Flutter superati; cadenza reale da verificare su Mac e iPhone.
