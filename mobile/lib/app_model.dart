@@ -31,6 +31,9 @@ class AppModel extends ChangeNotifier {
   bool _observing = false, _disposed = false;
   img.Image? _previous;
   String _scene = '';
+  bool continueWhenLocked = true;
+  bool get supportsBackgroundVoice =>
+      defaultTargetPlatform == TargetPlatform.iOS;
   AppModel({LocalStore? storage, http.Client? client})
     : store = storage ?? SecureLocalStore() {
     memory = Memories(store);
@@ -62,6 +65,7 @@ class AppModel extends ChangeNotifier {
   Future<void> load() async {
     try {
       await memory.load();
+      continueWhenLocked = await store.read('continue_when_locked') != 'false';
       api.key = await store.read('openai_key') ?? '';
       final saved = await store.read('voice');
       if (voices.contains(saved)) voice = saved!;
@@ -74,7 +78,15 @@ class AppModel extends ChangeNotifier {
     refresh();
   }
 
-  Future<void> saveSettings(String newKey, String newVoice) async {
+  Future<void> saveSettings(
+    String newKey,
+    String newVoice, {
+    bool? backgroundVoice,
+  }) async {
+    if (backgroundVoice != null) {
+      await store.write('continue_when_locked', backgroundVoice.toString());
+      continueWhenLocked = backgroundVoice;
+    }
     if (newKey.trim().isNotEmpty) {
       await store.write('openai_key', newKey.trim());
       api.key = newKey.trim();
@@ -284,7 +296,8 @@ class AppModel extends ChangeNotifier {
       return;
     }
     if (!live.active &&
-        DateTime.now().difference(_lastAnalysis) < const Duration(seconds: 15)) {
+        DateTime.now().difference(_lastAnalysis) <
+            const Duration(seconds: 15)) {
       return;
     }
     _observing = true;
@@ -365,6 +378,18 @@ class AppModel extends ChangeNotifier {
     visionStatus = 'Fotocamera spenta';
     refresh();
     await current?.dispose();
+  }
+
+  Future<void> enterBackground() async {
+    final keepVoice =
+        supportsBackgroundVoice && continueWhenLocked && live.active;
+    // Cancel camera captures before awaiting disposal; never restart it silently.
+    final cameraStopped = stopCamera();
+    if (!keepVoice) {
+      _generation++;
+      await live.stop();
+    }
+    await cameraStopped;
   }
 
   Future<void> shutdown() async {

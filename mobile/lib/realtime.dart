@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
@@ -39,11 +40,24 @@ class Realtime {
     status = 'Collego la voce…';
     changed();
     try {
+      if (Platform.isIOS) {
+        await Helper.setAppleAudioConfiguration(
+          AppleAudioConfiguration(
+            appleAudioCategory: AppleAudioCategory.playAndRecord,
+            appleAudioMode: AppleAudioMode.voiceChat,
+            appleAudioCategoryOptions: {
+              AppleAudioCategoryOption.allowBluetooth,
+              AppleAudioCategoryOption.defaultToSpeaker,
+            },
+          ),
+        );
+      }
+      if (token != _generation) return;
       final mic = await navigator.mediaDevices.getUserMedia({
         'audio': {
           'echoCancellation': true,
           'noiseSuppression': true,
-          'autoGainControl': true,
+          'autoGainControl': false,
         },
         'video': false,
       });
@@ -157,7 +171,8 @@ class Realtime {
       });
       _limit = Timer(const Duration(minutes: 25), () => unawaited(stop()));
       _idle = Timer.periodic(const Duration(seconds: 15), (_) {
-        if (DateTime.now().difference(_lastInput) > const Duration(minutes: 3)) {
+        if (DateTime.now().difference(_lastInput) >
+            const Duration(minutes: 3)) {
           unawaited(stop());
         }
       });

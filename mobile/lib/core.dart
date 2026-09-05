@@ -129,10 +129,13 @@ Map<String, dynamic> liveSession(String memory, String voice) => {
       '${instructions(memory)}\nSei in risparmio automatico. Rispondi direttamente alle richieste semplici. Usa consult_expert per ragionamenti complessi, codice non banale o analisi approfondite e SEMPRE se l’utente dice «usa il massimo» o «pensaci meglio». Riassumi fedelmente il risultato a voce. Per salvare note richieste usa remember_memory.',
   'audio': {
     'input': {
+      'noise_reduction': {'type': 'near_field'},
       'transcription': {'model': 'gpt-4o-mini-transcribe', 'language': 'it'},
       'turn_detection': {
-        'type': 'semantic_vad',
-        'eagerness': 'medium',
+        'type': 'server_vad',
+        'threshold': 0.7,
+        'prefix_padding_ms': 300,
+        'silence_duration_ms': 750,
         'create_response': true,
         'interrupt_response': true,
       },

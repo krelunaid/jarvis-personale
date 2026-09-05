@@ -69,8 +69,9 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.paused) {
+      unawaited(model.enterBackground());
+    } else if (state == AppLifecycleState.detached) {
       unawaited(model.shutdown());
     }
   }
@@ -270,8 +271,10 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
           ],
         ),
       const SizedBox(height: 12),
-      const Text(
-        'Voce AI • audio inviato a OpenAI durante la conversazione. Usa credito API.',
+      Text(
+        model.supportsBackgroundVoice && model.continueWhenLocked
+            ? 'Voce e microfono continuano anche a schermo bloccato dopo Avvia. Per fermarli premi Termina. Audio inviato a OpenAI; usa credito API.'
+            : 'Voce AI • audio inviato a OpenAI durante la conversazione. Usa credito API.',
         textAlign: TextAlign.center,
         style: TextStyle(fontSize: 12, color: Color(0xff98aebe)),
       ),
@@ -643,6 +646,7 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
   Future<void> settings() async {
     final key = TextEditingController();
     var selected = model.voice;
+    var backgroundVoice = model.continueWhenLocked;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -689,6 +693,16 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
                   style: TextStyle(fontSize: 12, color: Color(0xff98aebe)),
                 ),
                 const SizedBox(height: 18),
+                if (model.supportsBackgroundVoice)
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Continua a schermo bloccato'),
+                    subtitle: const Text(
+                      'Solo dopo Avvia: voce e microfono restano attivi anche fuori dall’app. La fotocamera si spegne. Usa credito API. Stop dopo 3 minuti di inattività o 25 minuti di sessione.',
+                    ),
+                    value: backgroundVoice,
+                    onChanged: (value) => update(() => backgroundVoice = value),
+                  ),
                 const Text('Voce della prossima conversazione'),
                 Wrap(
                   spacing: 10,
@@ -704,7 +718,7 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Risparmio automatico attivo. Usa il massimo per un approfondimento. Webcam, chat e ricerche hanno costi aggiuntivi. Microfono e fotocamera si fermano quando lasci l’app.',
+                  'Risparmio automatico attivo. Usa il massimo per un approfondimento. Webcam, chat e ricerche hanno costi aggiuntivi. La fotocamera si ferma fuori dall’app. Su iPhone la voce continua se abiliti l’opzione a schermo bloccato.',
                   style: TextStyle(
                     fontSize: 12,
                     color: Color(0xff98aebe),
@@ -716,7 +730,13 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: () async {
-                      await run(() => model.saveSettings(key.text, selected));
+                      await run(
+                        () => model.saveSettings(
+                          key.text,
+                          selected,
+                          backgroundVoice: backgroundVoice,
+                        ),
+                      );
                       if (context.mounted) Navigator.pop(context);
                     },
                     child: const Text('Salva'),
