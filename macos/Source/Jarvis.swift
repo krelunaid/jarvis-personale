@@ -165,9 +165,17 @@ final class Camera: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBu
         let bounds = CGRect(x: small.extent.minX, y: small.extent.minY, width: 16, height: 16)
         var pixels = [UInt8](repeating: 0, count: 16 * 16 * 4)
         context.render(small, toBitmap: &pixels, rowBytes: 64, bounds: bounds, format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
-        return stride(from: 0, to: pixels.count, by: 4).map { i in
-            0.299 * Double(pixels[i]) + 0.587 * Double(pixels[i + 1]) + 0.114 * Double(pixels[i + 2])
+        var hint: [Double] = []
+        hint.reserveCapacity(16 * 16)
+        var i = 0
+        while i + 2 < pixels.count {
+            let red = Double(pixels[i])
+            let green = Double(pixels[i + 1])
+            let blue = Double(pixels[i + 2])
+            hint.append(0.299 * red + 0.587 * green + 0.114 * blue)
+            i += 4
         }
+        return hint
     }
 }
 final class PreviewView: NSView {
