@@ -32,10 +32,7 @@ class Realtime {
 
   void _requestResponse([Map<String, dynamic>? response]) {
     _responding = true;
-    send({
-      'type': 'response.create',
-      'response': ?response,
-    });
+    send({'type': 'response.create', 'response': ?response});
   }
 
   bool _isSpokenRequest(String text, bool overlapping) {

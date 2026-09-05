@@ -77,33 +77,37 @@ void main() {
   });
   test('Vision encode returns a 16x16 luminance hint', () {
     final encoded = encodeVisionFrame(
-      VideoFrame(2, 2, true, [
-        Uint8List.fromList([
-          0,
-          0,
-          255,
-          255,
-          0,
-          0,
-          255,
-          255,
-          0,
-          0,
-          255,
-          255,
-          0,
-          0,
-          255,
-          255,
-        ]),
-      ], [8], [4]),
+      VideoFrame(
+        2,
+        2,
+        true,
+        [
+          Uint8List.fromList([
+            0,
+            0,
+            255,
+            255,
+            0,
+            0,
+            255,
+            255,
+            0,
+            0,
+            255,
+            255,
+            0,
+            0,
+            255,
+            255,
+          ]),
+        ],
+        [8],
+        [4],
+      ),
     );
     expect(encoded.hint, hasLength(256));
     expect(encoded.jpeg, isNotEmpty);
-    expect(
-      compareHints(encoded.hint, encoded.hint).mean,
-      0,
-    );
+    expect(compareHints(encoded.hint, encoded.hint).mean, 0);
     expect(VisionPace.jpegQuality, 82);
     expect(VisionPace.maxEdge, 768);
   });

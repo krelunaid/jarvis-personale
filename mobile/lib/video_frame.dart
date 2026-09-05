@@ -34,7 +34,8 @@ EncodedVision encodeVisionFrame(VideoFrame frame) {
     throw const FormatException('Formato video non supportato');
   }
   final scale =
-      VisionPace.maxEdge / (frame.width > frame.height ? frame.width : frame.height);
+      VisionPace.maxEdge /
+      (frame.width > frame.height ? frame.width : frame.height);
   final w = scale < 1 ? (frame.width * scale).round() : frame.width;
   final h = scale < 1 ? (frame.height * scale).round() : frame.height;
   var output = img.Image(width: w, height: h);

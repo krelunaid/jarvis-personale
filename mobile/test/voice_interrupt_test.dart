@@ -104,7 +104,10 @@ void main() {
       'conversation.item.create',
       'response.create',
     ]);
-    final item = voice.events.first['item'] as Map<String, dynamic>;
+    final created = voice.events.firstWhere(
+      (event) => event['type'] == 'conversation.item.create',
+    );
+    final item = created['item'] as Map<String, dynamic>;
     final content = item['content'] as List;
     expect(content[0]['text'], contains('Scena attuale'));
     expect(content[1]['type'], 'input_image');
