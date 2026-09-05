@@ -250,30 +250,49 @@ class Realtime {
     send({'type': 'response.create'});
   }
 
-  void observe(Uint8List image) {
-    if (!active) return;
+  Future<bool> observe(Uint8List image) async {
+    final channel = _channel;
+    if (!active || channel?.state != RTCDataChannelState.RTCDataChannelOpen) {
+      return false;
+    }
+    final token = _generation;
+    if (await channel!.getBufferedAmount().timeout(const Duration(seconds: 1)) >
+        65536) {
+      return false;
+    }
+    if (!active || token != _generation) {
+      return false;
+    }
     clearObservation();
     final id = 'v${DateTime.now().microsecondsSinceEpoch}';
     _observation = id;
-    send({
-      'type': 'conversation.item.create',
-      'item': {
-        'id': id,
-        'type': 'message',
-        'role': 'user',
-        'content': [
-          {
-            'type': 'input_text',
-            'text':
-                'Foto automatica aggiornata adesso. Usala per le prossime domande, senza commentarla spontaneamente.',
-          },
-          {
-            'type': 'input_image',
-            'image_url': 'data:image/jpeg;base64,${base64Encode(image)}',
-          },
-        ],
-      },
-    });
+    await channel
+        .send(
+          RTCDataChannelMessage(
+            jsonEncode({
+              'type': 'conversation.item.create',
+              'item': {
+                'id': id,
+                'type': 'message',
+                'role': 'user',
+                'content': [
+                  {
+                    'type': 'input_text',
+                    'text':
+                        'Fotogramma del flusso video aggiornato adesso. Usalo per le prossime domande, senza commentarla spontaneamente.',
+                  },
+                  {
+                    'type': 'input_image',
+                    'image_url':
+                        'data:image/jpeg;base64,${base64Encode(image)}',
+                  },
+                ],
+              },
+            }),
+          ),
+        )
+        .timeout(const Duration(seconds: 2));
+    return active && token == _generation;
   }
 
   void clearObservation() {

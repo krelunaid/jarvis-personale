@@ -337,6 +337,14 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
                       : 'Spegni fotocamera',
                 ),
               ),
+              if (model.camera != null && model.cameraCount > 1)
+                TextButton.icon(
+                  onPressed: model.cameraStarting
+                      ? null
+                      : () => run(model.switchCamera),
+                  icon: const Icon(Icons.cameraswitch_outlined),
+                  label: const Text('Cambia fotocamera'),
+                ),
               if (model.camera != null)
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
@@ -348,7 +356,7 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
                   onChanged: model.setWatching,
                 ),
               const Text(
-                'Immagini a OpenAI quando cambia la scena, con aggiornamento periodico. Nessun pulsante Guarda necessario. Usa credito API.',
+                'Flusso senza scatti. Durante la voce: circa 1 immagine al secondo a OpenAI, se la connessione lo consente. In chat: analisi più distanziate. Non vede ogni istante del video. Usa credito API.',
                 style: TextStyle(fontSize: 11, color: Color(0xff98aebe)),
               ),
             ],

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:flutter/services.dart';
+import 'video_frame.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -27,7 +29,12 @@ class AppModel extends ChangeNotifier {
   bool ready = false, busy = false, cameraStarting = false, watching = true;
   String error = '', visionStatus = 'Fotocamera spenta', voice = 'cedar';
   int _generation = 0, _cameraGeneration = 0;
-  Timer? _visionTimer;
+  CameraLensDirection lensDirection = CameraLensDirection.front;
+  int cameraCount = 0;
+  Uint8List? _latestFrame;
+  DateTime? _frameTime;
+  bool _convertingFrame = false;
+  DateTime _lastFrameAttempt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _observing = false, _disposed = false;
   img.Image? _previous;
   String _scene = '';
@@ -220,32 +227,40 @@ class AppModel extends ChangeNotifier {
     try {
       final choices = await availableCameras();
       if (choices.isEmpty) throw JarvisError('Nessuna fotocamera disponibile.');
+      cameraCount = choices.length;
       final selected =
-          choices
-              .where((c) => c.lensDirection == CameraLensDirection.front)
-              .firstOrNull ??
+          choices.where((c) => c.lensDirection == lensDirection).firstOrNull ??
           choices.first;
       next = CameraController(
         selected,
         ResolutionPreset.medium,
         enableAudio: false,
+        imageFormatGroup: Platform.isIOS
+            ? ImageFormatGroup.bgra8888
+            : ImageFormatGroup.yuv420,
       );
       await next.initialize();
       if (token != _cameraGeneration) {
         await next.dispose();
         return;
       }
+      await next.lockCaptureOrientation(DeviceOrientation.portraitUp);
+      if (token != _cameraGeneration) {
+        await next.dispose();
+        return;
+      }
       camera = next;
+      lensDirection = selected.lensDirection;
       _previous = null;
       _scene = '';
-      visionStatus = 'Vista automatica pronta';
-      _visionTimer = Timer.periodic(
-        const Duration(seconds: 5),
-        (_) => unawaited(observe()),
+      visionStatus = 'Avvio flusso fotocamera…';
+      final rotation = Platform.isIOS ? 0 : selected.sensorOrientation;
+      await next.startImageStream(
+        (frame) => _acceptFrame(frame, token, rotation),
       );
-      unawaited(observe());
     } catch (e) {
       await next?.dispose();
+      if (token == _cameraGeneration) camera = null;
       if (token == _cameraGeneration) {
         error = e is JarvisError
             ? e.message
@@ -259,30 +274,63 @@ class AppModel extends ChangeNotifier {
     }
   }
 
+  Future<void> switchCamera() async {
+    if (cameraStarting || cameraCount < 2) return;
+    await stopCamera();
+    lensDirection = lensDirection == CameraLensDirection.front
+        ? CameraLensDirection.back
+        : CameraLensDirection.front;
+    await toggleCamera();
+  }
+
+  void _acceptFrame(CameraImage frame, int token, int rotation) {
+    if (token != _cameraGeneration || !watching || _convertingFrame) return;
+    final now = DateTime.now();
+    if (now.difference(_lastFrameAttempt) < const Duration(seconds: 1)) return;
+    _lastFrameAttempt = now;
+    _convertingFrame = true;
+    final packet = VideoFrame(
+      frame.width,
+      frame.height,
+      frame.format.group == ImageFormatGroup.bgra8888,
+      frame.planes.map((p) => Uint8List.fromList(p.bytes)).toList(),
+      frame.planes.map((p) => p.bytesPerRow).toList(),
+      frame.planes
+          .map(
+            (p) =>
+                p.bytesPerPixel ??
+                (frame.format.group == ImageFormatGroup.bgra8888 ? 4 : 1),
+          )
+          .toList(),
+      rotation: rotation,
+    );
+    unawaited(
+      compute(encodeVideoFrame, packet)
+          .then((jpeg) async {
+            if (token != _cameraGeneration || !watching) return;
+            _latestFrame = jpeg;
+            _frameTime = now;
+            await observe();
+          })
+          .catchError((Object _) {
+            if (token == _cameraGeneration) {
+              visionStatus =
+                  'Immagine video non disponibile: riprovo automaticamente';
+              refresh();
+            }
+          })
+          .whenComplete(() => _convertingFrame = false),
+    );
+  }
+
   Future<Uint8List?> snapshot() async {
-    final current = camera;
     if (!watching ||
-        current == null ||
-        !current.value.isInitialized ||
-        current.value.isTakingPicture) {
+        camera == null ||
+        _frameTime == null ||
+        DateTime.now().difference(_frameTime!) > const Duration(seconds: 3)) {
       return null;
     }
-    final token = _cameraGeneration;
-    final shot = await current.takePicture();
-    try {
-      final bytes = await shot.readAsBytes();
-      if (token != _cameraGeneration) return null;
-      final decoded = img.decodeImage(bytes);
-      if (decoded == null) return null;
-      final scaled = decoded.width > decoded.height
-          ? img.copyResize(decoded, width: 768)
-          : img.copyResize(decoded, height: 768);
-      return Uint8List.fromList(img.encodeJpg(scaled, quality: 72));
-    } finally {
-      try {
-        await File(shot.path).delete();
-      } catch (_) {}
-    }
+    return _latestFrame;
   }
 
   DateTime _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
@@ -321,7 +369,8 @@ class AppModel extends ChangeNotifier {
         difference = sum / 256;
       }
       // Periodic refresh avoids indefinitely stale context after small movements.
-      if (difference < 7 &&
+      if (!live.active &&
+          difference < 7 &&
           DateTime.now().difference(_lastAnalysis) <
               const Duration(seconds: 30)) {
         visionStatus = 'Vista attiva • scena stabile';
@@ -332,7 +381,7 @@ class AppModel extends ChangeNotifier {
       visionStatus = 'Invio una nuova immagine a OpenAI';
       refresh();
       if (live.active) {
-        live.observe(photo);
+        if (!await live.observe(photo)) return;
       } else {
         final response = await api.respond(
           'Descrivi in una frase i cambiamenti visibili rispetto a: $_scene. Se invariato rispondi solo INVARIATO.',
@@ -346,12 +395,12 @@ class AppModel extends ChangeNotifier {
           add('assistant', 'Vista automatica\n$response');
         }
       }
+      if (token != _cameraGeneration || !watching) return;
       visionStatus =
           'Vista aggiornata • ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}';
     } catch (_) {
       if (token == _cameraGeneration) {
         visionStatus = 'Vista in pausa: riprova con la fotocamera';
-        _visionTimer?.cancel();
       }
     } finally {
       _observing = false;
@@ -363,21 +412,30 @@ class AppModel extends ChangeNotifier {
     watching = value;
     if (!value) live.clearObservation();
     _previous = null;
+    _latestFrame = null;
+    _frameTime = null;
+    _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
     visionStatus = value ? 'Vista automatica pronta' : 'Solo anteprima locale';
     refresh();
   }
 
   Future<void> stopCamera() async {
     _cameraGeneration++;
-    _visionTimer?.cancel();
-    _visionTimer = null;
+    _latestFrame = null;
+    _frameTime = null;
+    _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
     final current = camera;
     camera = null;
     cameraStarting = false;
     live.clearObservation();
     visionStatus = 'Fotocamera spenta';
     refresh();
-    await current?.dispose();
+    if (current != null) {
+      try {
+        if (current.value.isStreamingImages) await current.stopImageStream();
+      } catch (_) {}
+      await current.dispose();
+    }
   }
 
   Future<void> enterBackground() async {
