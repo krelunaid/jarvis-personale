@@ -55,3 +55,7 @@ Ogni avvio vocale apre una conversazione nuova senza reinviare i vecchi messaggi
 ## Aggiornamento 1.0.4 (5)
 
 Soglia di rilevamento voce aumentata da 0.7 a 0.8 per ridurre le interruzioni causate da suoni deboli. Interruzione tramite parlato ancora abilitata; voce, modello e attesa a fine frase invariati. Da verificare su telefono reale con tono normale e rumori ambientali.
+
+## Aggiornamento 1.0.5 (6)
+
+Le interruzioni automatiche e le risposte al solo VAD sono disattivate: la risposta viene avviata dopo una trascrizione valida. I rumori senza parole e alcuni intercalari non interrompono; sì/ok durante la risposta non la tagliano. Aspetta/fermati restano validi. Il pulsante Interrompi agisce subito. La conferma può aggiungere attesa fino alla fine del breve intervento e alla trascrizione, e dipende dalla sua accuratezza. Analisi statica e 21 test superati; sensibilità reale da verificare su iPhone.

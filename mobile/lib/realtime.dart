@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
 import 'core.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 class Realtime {
   final OpenAI api;
@@ -23,7 +24,72 @@ class Realtime {
   int _generation = 0, _expertCalls = 0;
   final _handled = <String>{};
   String? _observation;
-  bool _responding = false;
+  bool _responding = false, _pendingVoiceReply = false;
+  int _voiceTurn = 0;
+  final Map<String, bool> _speechOverlap = {};
+  final Set<String> _processedSpeech = {};
+
+  void _requestResponse([Map<String, dynamic>? response]) {
+    _responding = true;
+    send({
+      'type': 'response.create',
+      'response': ?response,
+    });
+  }
+
+  bool _isSpokenRequest(String text, bool overlapping) {
+    final words = text
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-zàèéìòù0-9 ]'), ' ')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
+    if (words.isEmpty ||
+        {
+          'mh',
+          'mhm',
+          'mmm',
+          'eh',
+          'uh',
+          'ah',
+          'rumore',
+          'silenzio',
+          'respiro',
+          'tosse',
+          'noise',
+          'inaudibile',
+        }.contains(words)) {
+      return false;
+    }
+    // Brief acknowledgements should not cut off the assistant mid-answer.
+    if (overlapping && {'sì', 'si', 'ok', 'okay', 'va bene'}.contains(words)) {
+      return false;
+    }
+    return true;
+  }
+
+  void _acceptSpokenText(String id, String text) {
+    if (!_processedSpeech.add(id)) return;
+    if (_processedSpeech.length > 200) {
+      _processedSpeech.remove(_processedSpeech.first);
+    }
+    final overlapping = _speechOverlap.remove(id) ?? (speaking || _responding);
+    if (muted || !_isSpokenRequest(text, overlapping)) {
+      send({'type': 'conversation.item.delete', 'item_id': id});
+      return;
+    }
+    _lastInput = DateTime.now();
+    _expertCalls = 0;
+    _voiceTurn++;
+    transcript(id, 'user', text);
+    _pendingVoiceReply = true;
+    final waitingForCancellation = _responding;
+    interrupt();
+    if (!waitingForCancellation) {
+      _pendingVoiceReply = false;
+      _requestResponse();
+    }
+  }
+
   Future<void> _tools = Future.value();
   DateTime _lastInput = DateTime.now();
   Timer? _idle;
@@ -109,7 +175,7 @@ class Realtime {
       dc.onMessage = (message) {
         if (token != _generation || message.isBinary) return;
         try {
-          _handle(jsonDecode(message.text) as Map<String, dynamic>);
+          handleServerEvent(jsonDecode(message.text) as Map<String, dynamic>);
         } catch (_) {
           unawaited(_fail('Risposta vocale non leggibile. Riprova.'));
         }
@@ -145,12 +211,9 @@ class Realtime {
       active = true;
       status = 'Ti ascolto';
       _lastInput = DateTime.now();
-      send({
-        'type': 'response.create',
-        'response': {
-          'instructions':
-              'Saluta brevemente in italiano. Non inventare di vedere o sentire qualcosa.',
-        },
+      _requestResponse({
+        'instructions':
+            'Saluta brevemente in italiano. Non inventare di vedere o sentire qualcosa.',
       });
       _limit = Timer(const Duration(minutes: 25), () => unawaited(stop()));
       _idle = Timer.periodic(const Duration(seconds: 15), (_) {
@@ -230,7 +293,7 @@ class Realtime {
       },
     });
     transcript('u${DateTime.now().microsecondsSinceEpoch}', 'user', text);
-    send({'type': 'response.create'});
+    _requestResponse();
   }
 
   Future<bool> observe(Uint8List image) async {
@@ -285,18 +348,30 @@ class Realtime {
     _observation = null;
   }
 
-  void _handle(Map<String, dynamic> event) {
+  @visibleForTesting
+  void handleServerEvent(Map<String, dynamic> event) {
+    if (!active && !connecting) return;
     switch (event['type']) {
       case 'input_audio_buffer.speech_started':
-        _lastInput = DateTime.now();
-        _expertCalls = 0;
-        status = 'Ti ascolto';
+        final id = event['item_id'] as String?;
+        if (id != null) {
+          _speechOverlap[id] = speaking || _responding;
+          if (_speechOverlap.length > 200) {
+            _speechOverlap.remove(_speechOverlap.keys.first);
+          }
+        }
       case 'conversation.item.input_audio_transcription.completed':
-        transcript(
-          event['item_id'] as String,
-          'user',
-          event['transcript'] as String? ?? '',
-        );
+        final id = event['item_id'] as String?;
+        if (id != null) {
+          _acceptSpokenText(id, event['transcript'] as String? ?? '');
+        }
+      case 'conversation.item.input_audio_transcription.failed':
+        final id = event['item_id'] as String?;
+        if (id != null) {
+          _speechOverlap.remove(id);
+          send({'type': 'conversation.item.delete', 'item_id': id});
+        }
+        error = 'Non ho capito le parole. Riprova, oppure scrivi in chat.';
       case 'response.output_audio_transcript.done':
       case 'response.output_text.done':
         transcript(
@@ -324,6 +399,11 @@ class Realtime {
           );
           return;
         }
+        if (_pendingVoiceReply) {
+          _pendingVoiceReply = false;
+          _requestResponse();
+          return;
+        }
         if (response['status'] == 'cancelled') return;
         final calls = (response['output'] as List? ?? [])
             .where((v) => v['type'] == 'function_call')
@@ -331,14 +411,15 @@ class Realtime {
             .toList();
         if (calls.isNotEmpty) {
           final token = _generation;
-          _tools = _tools.then((_) => _runTools(calls, token)).catchError((
-            Object _,
-          ) {
-            if (token == _generation) {
-              error = 'Strumento non riuscito. Riprova.';
-              changed();
-            }
-          });
+          final turn = _voiceTurn;
+          _tools = _tools.then((_) => _runTools(calls, token, turn)).catchError(
+            (Object _) {
+              if (token == _generation) {
+                error = 'Strumento non riuscito. Riprova.';
+                changed();
+              }
+            },
+          );
         }
       case 'error':
         final code = (event['error'] as Map?)?['code'];
@@ -354,7 +435,11 @@ class Realtime {
     changed();
   }
 
-  Future<void> _runTools(List<Map<String, dynamic>> calls, int token) async {
+  Future<void> _runTools(
+    List<Map<String, dynamic>> calls,
+    int token,
+    int turn,
+  ) async {
     bool produced = false;
     for (final call in calls) {
       if (token != _generation) return;
@@ -403,8 +488,11 @@ class Realtime {
       });
       produced = true;
     }
-    if (produced && token == _generation && !_responding) {
-      send({'type': 'response.create'});
+    if (produced &&
+        token == _generation &&
+        turn == _voiceTurn &&
+        !_responding) {
+      _requestResponse();
     }
   }
 
@@ -427,6 +515,10 @@ class Realtime {
     _observation = null;
     _expertCalls = 0;
     _responding = false;
+    _pendingVoiceReply = false;
+    _speechOverlap.clear();
+    _processedSpeech.clear();
+    _voiceTurn++;
     final mic = _mic;
     _mic = null;
     final peer = _peer;
