@@ -31,7 +31,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: JarvisHome(model: model)));
     await tester.pumpAndSettle();
     final copy = find.textContaining(
-      'circa 4 fotogrammi al secondo',
+      'circa 5 fotogrammi al secondo',
       skipOffstage: false,
     );
     expect(copy, findsOneWidget);

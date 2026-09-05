@@ -24,6 +24,7 @@ class Realtime {
   int _generation = 0, _expertCalls = 0;
   final _handled = <String>{};
   String? _observation;
+  Uint8List? latestPhoto;
   bool _responding = false, _pendingVoiceReply = false;
   int _voiceTurn = 0;
   final Map<String, bool> _speechOverlap = {};
@@ -84,6 +85,9 @@ class Realtime {
     _pendingVoiceReply = true;
     final waitingForCancellation = _responding;
     interrupt();
+    _pinLatestPhoto(
+      'Scena attuale al momento della domanda. Usala per testo, oggetti e ciò che è visibile.',
+    );
     if (!waitingForCancellation) {
       _pendingVoiceReply = false;
       _requestResponse();
@@ -296,6 +300,29 @@ class Realtime {
     _requestResponse();
   }
 
+  void _pinLatestPhoto(String text, {Uint8List? image}) {
+    final photo = image ?? latestPhoto;
+    if (!active || photo == null) return;
+    clearObservation();
+    final id = 'v${DateTime.now().microsecondsSinceEpoch}';
+    _observation = id;
+    send({
+      'type': 'conversation.item.create',
+      'item': {
+        'id': id,
+        'type': 'message',
+        'role': 'user',
+        'content': [
+          {'type': 'input_text', 'text': text},
+          {
+            'type': 'input_image',
+            'image_url': 'data:image/jpeg;base64,${base64Encode(photo)}',
+          },
+        ],
+      },
+    });
+  }
+
   Future<bool> observe(Uint8List image) async {
     final channel = _channel;
     if (!active || channel?.state != RTCDataChannelState.RTCDataChannelOpen) {
@@ -309,35 +336,10 @@ class Realtime {
     if (!active || token != _generation) {
       return false;
     }
-    clearObservation();
-    final id = 'v${DateTime.now().microsecondsSinceEpoch}';
-    _observation = id;
-    await channel
-        .send(
-          RTCDataChannelMessage(
-            jsonEncode({
-              'type': 'conversation.item.create',
-              'item': {
-                'id': id,
-                'type': 'message',
-                'role': 'user',
-                'content': [
-                  {
-                    'type': 'input_text',
-                    'text':
-                        'Fotogramma del flusso video aggiornato adesso. Usalo per le prossime domande, senza commentarla spontaneamente.',
-                  },
-                  {
-                    'type': 'input_image',
-                    'image_url':
-                        'data:image/jpeg;base64,${base64Encode(image)}',
-                  },
-                ],
-              },
-            }),
-          ),
-        )
-        .timeout(const Duration(seconds: 2));
+    _pinLatestPhoto(
+      'Vista attuale aggiornata adesso. Questa foto sostituisce le precedenti: usala per testo, oggetti e ciò che è visibile, senza commentare ogni aggiornamento.',
+      image: image,
+    );
     return active && token == _generation;
   }
 
@@ -513,6 +515,7 @@ class Realtime {
     _tools = Future.value();
     _handled.clear();
     _observation = null;
+    latestPhoto = null;
     _expertCalls = 0;
     _responding = false;
     _pendingVoiceReply = false;

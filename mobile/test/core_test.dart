@@ -158,5 +158,6 @@ void main() {
       containsAll(['remember_memory', 'search_web', 'consult_expert']),
     );
     expect(session['instructions'], contains('Nota'));
+    expect(session['instructions'], contains('foto più recente'));
   });
 }

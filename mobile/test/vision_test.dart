@@ -5,19 +5,20 @@ import 'package:jarvis_mobile/vision.dart';
 import 'core_test.dart' show FakeStore;
 
 void main() {
-  test('accept and send gaps stay in the 2–5 Hz band', () {
-    expect(VisionPace.acceptGap, const Duration(milliseconds: 250));
-    expect(VisionPace.liveSendGap, const Duration(milliseconds: 250));
+  test('accept and send gaps stay at or above 4 Hz when live', () {
+    expect(VisionPace.acceptGap, const Duration(milliseconds: 200));
+    expect(VisionPace.liveSendGap, const Duration(milliseconds: 200));
     expect(VisionPace.chatSendGap, const Duration(milliseconds: 400));
+    expect(VisionPace.liveStableRefresh, const Duration(milliseconds: 500));
     expect(
       const Duration(seconds: 1).inMilliseconds /
           VisionPace.acceptGap.inMilliseconds,
-      closeTo(4, 0.1),
+      closeTo(5, 0.1),
     );
     expect(
       const Duration(seconds: 1).inMilliseconds /
           VisionPace.liveSendGap.inMilliseconds,
-      inInclusiveRange(2, 5),
+      inInclusiveRange(4, 6),
     );
     expect(
       const Duration(seconds: 1).inMilliseconds /
@@ -39,7 +40,7 @@ void main() {
     expect(
       VisionPace.readyToSend(
         live: true,
-        last: now.subtract(const Duration(milliseconds: 250)),
+        last: now.subtract(const Duration(milliseconds: 200)),
         now: now,
       ),
       isTrue,
@@ -63,9 +64,19 @@ void main() {
     );
     expect(
       VisionPace.sceneMoved(
-        8,
+        4,
         live: true,
-        last: now.subtract(const Duration(milliseconds: 400)),
+        last: now.subtract(const Duration(milliseconds: 200)),
+        now: now,
+      ),
+      isTrue,
+    );
+    expect(
+      VisionPace.sceneMoved(
+        1,
+        peak: 40,
+        live: true,
+        last: now.subtract(const Duration(milliseconds: 200)),
         now: now,
       ),
       isTrue,
@@ -74,7 +85,7 @@ void main() {
       VisionPace.sceneMoved(
         1,
         live: true,
-        last: now.subtract(const Duration(seconds: 2)),
+        last: now.subtract(const Duration(milliseconds: 500)),
         now: now,
       ),
       isTrue,
@@ -110,6 +121,28 @@ void main() {
     expect(
       sceneDifference(dark, bright),
       greaterThan(VisionPace.changeThreshold),
+    );
+    final peaked = img.Image.from(dark);
+    img.fillRect(
+      peaked,
+      x1: 0,
+      y1: 0,
+      x2: 1,
+      y2: 1,
+      color: img.ColorRgb8(200, 200, 200),
+    );
+    final delta = compareHints(luminanceHint(dark), luminanceHint(peaked));
+    expect(delta.mean, lessThan(VisionPace.changeThreshold));
+    expect(delta.peak, greaterThan(VisionPace.peakThreshold));
+    expect(
+      VisionPace.sceneMoved(
+        delta.mean,
+        peak: delta.peak,
+        live: true,
+        last: DateTime(2026, 9, 5, 16, 30),
+        now: DateTime(2026, 9, 5, 16, 30),
+      ),
+      isTrue,
     );
   });
 

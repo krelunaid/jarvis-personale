@@ -356,7 +356,7 @@ class _JarvisHomeState extends State<JarvisHome> with WidgetsBindingObserver {
                   onChanged: model.setWatching,
                 ),
               const Text(
-                'Flusso senza scatti. Con vista automatica, circa 4 fotogrammi al secondo a OpenAI se la scena cambia. Scene ferme: analisi saltate. Non è un video continuo. Usa credito API.',
+                'Flusso senza scatti. Con vista automatica, circa 5 fotogrammi al secondo se la scena cambia; se è ferma si aggiorna comunque due volte al secondo. Non è un video continuo. Usa credito API.',
                 style: TextStyle(fontSize: 11, color: Color(0xff98aebe)),
               ),
             ],

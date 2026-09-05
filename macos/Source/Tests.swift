@@ -61,24 +61,34 @@ import AVFoundation
         do { _ = try API.answer([:]); assertionFailure() } catch {}
         assert(MemoryCommand.note("Jarvis, ricorda che preferisco risposte brevi") == "preferisco risposte brevi")
         assert(MemoryCommand.note("Cosa ricordi di me?") == nil)
-        assert(VisionPace.firstLookNs == 200_000_000)
-        assert(VisionPace.liveLookNs == 250_000_000)
+        assert(VisionPace.firstLookNs == 100_000_000)
+        assert(VisionPace.liveLookNs == 200_000_000)
         assert(VisionPace.chatLookNs == 400_000_000)
-        assert(VisionPace.captureSeconds == 0.2)
+        assert(VisionPace.captureSeconds == 0.18)
+        assert(VisionPace.liveStableSeconds == 0.5)
+        assert(VisionPace.lookCooldownSeconds == 0.4)
         assert(VisionPace.lookDelayNs(first: true, live: true) == VisionPace.firstLookNs)
         assert(VisionPace.lookDelayNs(first: false, live: true) == VisionPace.liveLookNs)
         assert(VisionPace.lookDelayNs(first: false, live: false) == VisionPace.chatLookNs)
-        assert((1_000_000_000 / VisionPace.liveLookNs) >= 2 && (1_000_000_000 / VisionPace.liveLookNs) <= 5)
+        assert((1_000_000_000 / VisionPace.liveLookNs) >= 4 && (1_000_000_000 / VisionPace.liveLookNs) <= 6)
         assert((1_000_000_000 / VisionPace.chatLookNs) >= 2 && (1_000_000_000 / VisionPace.chatLookNs) <= 5)
         let now = Date()
         let still = [Double](repeating: 40, count: 256)
         let moved = [Double](repeating: 80, count: 256)
+        let slight = [Double](repeating: 42, count: 256)
+        var peaked = still
+        peaked[10] = 80
         assert(VisionPace.sceneMoved(previous: nil, current: still, lastSent: now, live: true, now: now))
         assert(!VisionPace.sceneMoved(previous: still, current: still, lastSent: now, live: true, now: now))
+        assert(!VisionPace.sceneMoved(previous: still, current: slight, lastSent: now, live: true, now: now))
         assert(VisionPace.sceneMoved(previous: still, current: moved, lastSent: now, live: true, now: now))
-        assert(VisionPace.sceneMoved(previous: still, current: still, lastSent: now.addingTimeInterval(-3), live: true, now: now))
+        assert(VisionPace.sceneMoved(previous: still, current: peaked, lastSent: now, live: true, now: now))
+        assert(!VisionPace.sceneMoved(previous: still, current: still, lastSent: now.addingTimeInterval(-0.4), live: true, now: now))
+        assert(VisionPace.sceneMoved(previous: still, current: still, lastSent: now.addingTimeInterval(-0.5), live: true, now: now))
         assert(!VisionPace.sceneMoved(previous: still, current: still, lastSent: now.addingTimeInterval(-8), live: false, now: now))
         assert(VisionPace.sceneMoved(previous: still, current: still, lastSent: now.addingTimeInterval(-31), live: false, now: now))
+        let delta = VisionPace.sceneDelta(previous: still, current: peaked)
+        assert(delta.peak >= VisionPace.peakThreshold && delta.mean < VisionPace.changeThreshold)
         var savedNote = ""
         let memorizer = LiveConversation(); memorizer.testBegin(); memorizer.rememberNote = { savedNote = $0; return "Salvato" }
         memorizer.testReceive(["type": "response.done", "response": ["id": "mem", "status": "completed", "output": [["type": "function_call", "name": "remember_memory", "call_id": "mem1", "arguments": "{\"note\":\"Risposte brevi\"}"]]]])
@@ -92,6 +102,13 @@ import AVFoundation
         assert(watcher.testEvents.contains { $0["type"] as? String == "conversation.item.delete" })
         assert(watcher.testEvents.compactMap { ($0["item"] as? [String: Any])?["id"] as? String }.allSatisfy { $0.count <= 32 })
         assert(!watcher.testEvents.contains { $0["type"] as? String == "response.create" })
+        watcher.takePhoto = { Data([9, 9, 9]) }
+        watcher.testReceive(["type": "input_audio_buffer.speech_stopped"])
+        assert(watcher.testEvents.contains { event in
+            guard event["type"] as? String == "conversation.item.create",
+                  let content = (event["item"] as? [String: Any])?["content"] as? [[String: Any]] else { return false }
+            return content.contains { ($0["image_url"] as? String)?.contains("CQkJ") == true }
+        })
         var searches = 0
         watcher.searchWeb = { query in searches += 1; assert(query == "Museo Ferrari"); return "Risultato verificato" }
         let webEvent: [String: Any] = ["type": "response.done", "response": ["id": "web", "status": "completed", "output": [["type": "function_call", "name": "search_web", "call_id": "search1", "arguments": "{\"query\":\"Museo Ferrari\"}"]]]]
@@ -114,6 +131,6 @@ import AVFoundation
         assert(consultations == 1)
         assert(RealtimeProtocol.model == "gpt-realtime-2.1-mini")
         watcher.stop()
-        print("PASS: web tool, citations, duplicate search, automatic vision and image replacement; denser on-demand vision cadence; PCM conversion; automatic turns; camera opt-in, deduplication and rate limit; mute; transcription; interruption; authentication failure cleanup; bounded history and API errors.")
+        print("PASS: web tool, citations, duplicate search, automatic vision and image replacement; livelier on-demand vision cadence; speech-stopped frame refresh; PCM conversion; automatic turns; camera opt-in, deduplication and rate limit; mute; transcription; interruption; authentication failure cleanup; bounded history and API errors.")
     }
 }

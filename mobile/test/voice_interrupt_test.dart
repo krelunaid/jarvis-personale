@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:jarvis_mobile/core.dart';
@@ -94,5 +95,18 @@ void main() {
     expect(voice.error, contains('Riprova'));
     voice.words('retry', 'Ho una domanda');
     expect(voice.types.last, 'response.create');
+  });
+  test('confirmed speech pins the latest camera frame before answering', () {
+    voice.latestPhoto = Uint8List.fromList([1, 2, 3]);
+    voice.words('look', 'Cosa vedi adesso?');
+    expect(voice.types, [
+      'output_audio_buffer.clear',
+      'conversation.item.create',
+      'response.create',
+    ]);
+    final item = voice.events.first['item'] as Map<String, dynamic>;
+    final content = item['content'] as List;
+    expect(content[0]['text'], contains('Scena attuale'));
+    expect(content[1]['type'], 'input_image');
   });
 }
